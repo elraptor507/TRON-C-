@@ -1,0 +1,240 @@
+using System;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+
+namespace TronMonoGame
+{
+    public class Game1 : Game
+    {
+        private GraphicsDeviceManager _graphics;
+        private SpriteBatch _spriteBatch;
+
+        // === Config ===
+        private const int ANCHO = 1380;
+        private const int ALTO  = 780;
+        private const int Celda = 20;
+
+        private int[,] _mapa;                 // [x, y]
+        private int _cols, _rows;
+
+        private Player _p1;
+        private Player _p2;
+
+        private Texture2D _pixel;             // textura 1x1 para dibujar rectángulos
+
+        // Control de ticks (para mover a 20 pasos/seg como en reloj.tick(20))
+        private const float StepsPerSecond = 20f;
+        private float _accum;
+
+        // Para detectar "just pressed" y no repetir direcciones en un mismo tick
+        private KeyboardState _prevKb;
+
+        public Game1()
+        {
+            _graphics = new GraphicsDeviceManager(this);
+            Content.RootDirectory = "Content";
+            IsMouseVisible = true;
+
+            _graphics.PreferredBackBufferWidth  = ANCHO;
+            _graphics.PreferredBackBufferHeight = ALTO;
+        }
+
+        protected override void Initialize()
+        {
+            _cols = ANCHO / Celda;
+            _rows = ALTO  / Celda;
+
+            ResetMap();
+            ResetPlayers();
+
+            base.Initialize();
+        }
+
+        protected override void LoadContent()
+        {
+            _spriteBatch = new SpriteBatch(GraphicsDevice);
+
+            _pixel = new Texture2D(GraphicsDevice, 1, 1);
+            _pixel.SetData(new[] { Color.White });
+        }
+
+        protected override void Update(GameTime gameTime)
+        {
+            var kb = Keyboard.GetState();
+
+            if (kb.IsKeyDown(Keys.Escape))
+                Exit();
+
+            // === CONTROL (igual a tu Python) ===
+            HandleInput(kb);
+
+            // === TICK a 20Hz ===
+            _accum += (float)gameTime.ElapsedGameTime.TotalSeconds;
+            float stepDt = 1f / StepsPerSecond;
+
+            while (_accum >= stepDt)
+            {
+                StepLogic();
+                _accum -= stepDt;
+            }
+
+            _prevKb = kb;
+            base.Update(gameTime);
+        }
+
+        private void HandleInput(KeyboardState kb)
+        {
+            // P1: WASD
+            if (kb.IsKeyDown(Keys.D) && _p1.Dir != Dir.Left)  _p1.Dir = Dir.Right;
+            else if (kb.IsKeyDown(Keys.A) && _p1.Dir != Dir.Right) _p1.Dir = Dir.Left;
+            else if (kb.IsKeyDown(Keys.W) && _p1.Dir != Dir.Down)  _p1.Dir = Dir.Up;
+            else if (kb.IsKeyDown(Keys.S) && _p1.Dir != Dir.Up)    _p1.Dir = Dir.Down;
+
+            // P2: Flechas
+            if (kb.IsKeyDown(Keys.Right) && _p2.Dir != Dir.Left)    _p2.Dir = Dir.Right;
+            else if (kb.IsKeyDown(Keys.Left) && _p2.Dir != Dir.Right) _p2.Dir = Dir.Left;
+            else if (kb.IsKeyDown(Keys.Up) && _p2.Dir != Dir.Down)  _p2.Dir = Dir.Up;
+            else if (kb.IsKeyDown(Keys.Down) && _p2.Dir != Dir.Up)  _p2.Dir = Dir.Down;
+        }
+
+        private void StepLogic()
+        {
+            // === LOGICA de movimiento ===
+            Move(ref _p1);
+            Move(ref _p2);
+
+            // === DERROTA / RESET (mismo criterio que tu Python) ===
+            if (HitSomething(_p1))
+            {
+                ResetMap();
+                _p1 = NewP1();
+            }
+
+            if (HitSomething(_p2))
+            {
+                ResetMap();
+                _p2 = NewP2();
+            }
+
+            // Marcar rastros (mismo que tu mapa[...] = 1/2 usando %)
+            // En Python haces % incluso si está fuera; pero también chequeas bounds antes.
+            // Aquí ya chequeamos bounds, así que index directo.
+            if (Inside(_p1.X, _p1.Y)) _mapa[_p1.X, _p1.Y] = 1;
+            if (Inside(_p2.X, _p2.Y)) _mapa[_p2.X, _p2.Y] = 2;
+        }
+
+        private static void Move(ref Player p)
+        {
+            switch (p.Dir)
+            {
+                case Dir.Right: p.X += 1; break;
+                case Dir.Left:  p.X -= 1; break;
+                case Dir.Up:    p.Y -= 1; break;
+                case Dir.Down:  p.Y += 1; break;
+            }
+        }
+
+        private bool HitSomething(Player p)
+        {
+            // fuera de límites
+            if (!Inside(p.X, p.Y)) return true;
+
+            // choca con rastro
+            return _mapa[p.X, p.Y] != 0;
+        }
+
+        private bool Inside(int x, int y) => x >= 0 && x < _cols && y >= 0 && y < _rows;
+
+        private void ResetMap()
+        {
+            _mapa = new int[_cols, _rows];
+        }
+
+        private void ResetPlayers()
+        {
+            _p1 = NewP1();
+            _p2 = NewP2();
+        }
+
+        private static int FloorDiv(double a, double b) => (int)Math.Floor(a / b);
+
+        private Player NewP1()
+        {
+            // int(ANCHO//(celda*3)), int(ALTO//(celda*2)), "derecha"
+            // En Python: ANCHO//(celda*3) ya es floor.
+            int x = ANCHO / (Celda * 3);
+            int y = ALTO  / (Celda * 2);
+            return new Player(x, y, Dir.Right);
+        }
+
+        private Player NewP2()
+        {
+            // int(ANCHO//(celda*1.5)), int(ALTO//(celda*2)), "izquierda"
+            // ojo: divisor double 1.5 -> floor
+            int x = (int)Math.Floor(ANCHO / (Celda * 1.5));
+            int y = ALTO / (Celda * 2);
+            return new Player(x, y, Dir.Left);
+        }
+
+        protected override void Draw(GameTime gameTime)
+        {
+            GraphicsDevice.Clear(new Color(30, 30, 30));
+
+            _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+
+            // === DIBUJAR MAPA (rectángulos por celda) ===
+            for (int x = 0; x < _cols; x++)
+            {
+                for (int y = 0; y < _rows; y++)
+                {
+                    int v = _mapa[x, y];
+                    if (v == 1)
+                        DrawRect(x * Celda, y * Celda, Celda, Celda, Color.Cyan);              // (0,255,255)
+                    else if (v == 2)
+                        DrawRect(x * Celda, y * Celda, Celda, Celda, new Color(255, 150, 0)); // (255,150,0)
+                }
+            }
+
+            // === “Skin” jugador 1 (bloque 3x3 + centro negro) ===
+            DrawRect((_p1.X - 1) * Celda, (_p1.Y - 1) * Celda, Celda * 3, Celda * 3, new Color(0, 100, 255));
+            DrawRect(_p1.X * Celda, _p1.Y * Celda, Celda, Celda, Color.Black);
+
+            // === “Skin” jugador 2 ===
+            DrawRect((_p2.X - 1) * Celda, (_p2.Y - 1) * Celda, Celda * 3, Celda * 3, new Color(255, 50, 0));
+            DrawRect(_p2.X * Celda, _p2.Y * Celda, Celda, Celda, Color.Black);
+
+            _spriteBatch.End();
+
+            base.Draw(gameTime);
+        }
+
+        private void DrawRect(int x, int y, int w, int h, Color c)
+        {
+            _spriteBatch.Draw(_pixel, new Rectangle(x, y, w, h), c);
+        }
+
+        private enum Dir { Right, Left, Up, Down }
+
+        private readonly struct Player
+        {
+            public Player(int x, int y, Dir dir)
+            {
+                X = x; Y = y; Dir = dir;
+            }
+            public int X { get; init; }
+            public int Y { get; init; }
+            public Dir Dir { get; init; }
+        }
+
+        public static class Program
+        {
+            [STAThread]
+            static void Main()
+            {
+                using var game = new Game1();
+                game.Run();
+            }
+        }
+    }
+}
